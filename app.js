@@ -10,6 +10,8 @@
   const toInput = $("to");
   const weatherSel = $("weather");
   const generateBtn = $("generate");
+  const forecastBtn = $("use-forecast");
+  const forecastStatus = $("forecast-status");
 
   const formCard = $("form-card");
   const resultCard = $("result-card");
@@ -17,6 +19,7 @@
   const resultTitle = $("result-title");
   const resultMeta = $("result-meta");
   const progressBadge = $("progress-badge");
+  const allPackedEl = $("all-packed");
 
   // Populate circuit dropdown from packing-rules.js
   CIRCUITS.forEach((c) => {
@@ -26,17 +29,22 @@
     circuitSel.appendChild(opt);
   });
 
-  // Keep the day count in sync when dates are chosen.
+  // Keep the day count in sync as soon as dates are chosen. With both dates set
+  // it uses the inclusive range; with only "From" it assumes a single day.
   function syncDaysFromDates() {
     if (fromInput.value && toInput.value) {
       const from = new Date(fromInput.value);
       const to = new Date(toInput.value);
       const diff = Math.round((to - from) / 86400000) + 1; // inclusive
       if (diff >= 1) daysInput.value = diff;
+    } else if (fromInput.value) {
+      daysInput.value = 1;
     }
   }
   fromInput.addEventListener("change", syncDaysFromDates);
   toInput.addEventListener("change", syncDaysFromDates);
+  fromInput.addEventListener("input", syncDaysFromDates);
+  toInput.addEventListener("input", syncDaysFromDates);
 
   function currentSelections() {
     return {
@@ -64,14 +72,26 @@
     return [sel.circuit, sel.weather, sel.days, category, name].join("|");
   }
 
+  // Collapse a section once every item in it is ticked; expand it otherwise.
+  function updateSection(section) {
+    const boxes = section.querySelectorAll('input[type="checkbox"]');
+    const allDone = boxes.length && [...boxes].every((b) => b.checked);
+    section.classList.toggle("complete", !!allDone);
+    if (allDone) section.classList.add("collapsed");
+    else section.classList.remove("collapsed");
+  }
+
   function updateProgress() {
     const boxes = checklistEl.querySelectorAll('input[type="checkbox"]');
     if (!boxes.length) {
       progressBadge.textContent = "0%";
+      allPackedEl.classList.add("hidden");
       return;
     }
     const done = [...boxes].filter((b) => b.checked).length;
-    progressBadge.textContent = Math.round((done / boxes.length) * 100) + "%";
+    const pct = Math.round((done / boxes.length) * 100);
+    progressBadge.textContent = pct + "%";
+    allPackedEl.classList.toggle("hidden", pct !== 100);
   }
 
   function renderChecklist(sel) {
@@ -84,7 +104,13 @@
       section.className = "checklist-group";
       const h = document.createElement("h3");
       h.textContent = group.category;
+      // Tap a heading to collapse/expand its section manually.
+      h.addEventListener("click", () => section.classList.toggle("collapsed"));
       section.appendChild(h);
+
+      const rows = document.createElement("div");
+      rows.className = "group-rows";
+      section.appendChild(rows);
 
       group.items.forEach((item) => {
         const id = keyFor(sel, group.category, item.name);
@@ -98,6 +124,7 @@
           t[id] = box.checked;
           saveState({ ticks: t });
           row.classList.toggle("done", box.checked);
+          updateSection(section);
           updateProgress();
         });
         if (box.checked) row.classList.add("done");
@@ -108,9 +135,10 @@
         qty.className = "check-qty";
         qty.textContent = "×" + item.count;
         row.append(box, text, qty);
-        section.appendChild(row);
+        rows.appendChild(row);
       });
       checklistEl.appendChild(section);
+      updateSection(section);
     });
 
     const circuitName = (CIRCUITS.find((c) => c.id === sel.circuit) || {}).name || "Trip";
@@ -125,6 +153,56 @@
     renderChecklist(sel);
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
+
+  // Fetch the forecast for the selected circuit + dates, then set the weather
+  // dropdown to the toughest day. Falls back to manual on any failure.
+  async function autoWeather() {
+    const circuit = CIRCUITS.find((c) => c.id === circuitSel.value);
+    if (!circuit || circuit.lat == null) {
+      forecastStatus.textContent = "Pick a listed circuit to use the forecast.";
+      return;
+    }
+    if (!fromInput.value) {
+      forecastStatus.textContent = "Pick a 'From' date first.";
+      return;
+    }
+    const start = fromInput.value;
+    const end = toInput.value || start;
+    forecastStatus.textContent = "Checking the forecast…";
+    forecastBtn.disabled = true;
+    try {
+      const url =
+        "https://api.open-meteo.com/v1/forecast" +
+        "?latitude=" + circuit.lat + "&longitude=" + circuit.lon +
+        "&daily=temperature_2m_max,temperature_2m_min,precipitation_sum,sunshine_duration" +
+        "&timezone=auto&start_date=" + start + "&end_date=" + end;
+      const res = await fetch(url);
+      if (!res.ok) throw new Error("bad response");
+      const data = await res.json();
+      const d = data.daily;
+      if (!d || !d.time || !d.time.length) throw new Error("no forecast");
+      const cats = d.time.map((_, i) =>
+        classifyDay(
+          d.temperature_2m_max[i],
+          d.precipitation_sum[i],
+          (d.sunshine_duration[i] || 0) / 3600
+        )
+      );
+      const worst = worstWeather(cats);
+      weatherSel.value = worst;
+      const low = Math.round(Math.min.apply(null, d.temperature_2m_min));
+      const high = Math.round(Math.max.apply(null, d.temperature_2m_max));
+      forecastStatus.textContent =
+        "Forecast: " + low + "–" + high + " °C → set weather to " +
+        (WEATHER_LABELS[worst] || worst) + " (change it if you like).";
+    } catch (_) {
+      forecastStatus.textContent =
+        "Couldn't get the forecast (offline or date too far ahead) — pick weather manually.";
+    } finally {
+      forecastBtn.disabled = false;
+    }
+  }
+  forecastBtn.addEventListener("click", autoWeather);
 
   generateBtn.addEventListener("click", () => {
     const sel = currentSelections();

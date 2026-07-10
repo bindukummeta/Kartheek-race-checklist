@@ -1,4 +1,4 @@
-const CACHE = "racepack-v1";
+const CACHE = "racepack-v3";
 const ASSETS = [
   "./",
   "./index.html",

@@ -11,13 +11,15 @@
  * Use "all" to always include it regardless of weather.
  */
 
+// `lat`/`lon` power the optional auto-weather lookup. "Other" has none, so it
+// always falls back to manual weather selection.
 const CIRCUITS = [
-  { id: "rowrah", name: "Rowrah" },
-  { id: "whilton", name: "Whilton Mill" },
-  { id: "pfi", name: "PF International" },
-  { id: "clay", name: "Clay Pigeon" },
-  { id: "shenington", name: "Shenington" },
-  { id: "other", name: "Other / not listed" },
+  { id: "rowrah", name: "Rowrah", lat: 54.5519, lon: -3.4424 },
+  { id: "whilton", name: "Whilton Mill", lat: 52.276, lon: -1.0887 },
+  { id: "pfi", name: "PF International", lat: 52.9856, lon: -0.6089 },
+  { id: "clay", name: "Clay Pigeon", lat: 50.8236, lon: -2.555 },
+  { id: "shenington", name: "Shenington", lat: 52.0814, lon: -1.4767 },
+  { id: "other", name: "Other / not listed", lat: null, lon: null },
 ];
 
 const WEATHER_LABELS = {
@@ -47,7 +49,7 @@ const PACKING_RULES = [
     category: "Sleep",
     items: [
       { name: "Night shorts", qty: "days", conditions: ["hot", "sunny", "mixed"] },
-      { name: "Night shirts", qty: 2, conditions: ["all"] },
+      { name: "Night shirts", qty: "days", conditions: ["all"] },
       { name: "Warm pyjamas", qty: 1, conditions: ["cold", "rainy"] },
     ],
   },
@@ -83,6 +85,27 @@ const PACKING_RULES = [
     ],
   },
 ];
+
+// Map a day's forecast (max temp °C, precipitation mm, sunshine hours) to one of
+// our weather categories. Tweak these thresholds to taste.
+function classifyDay(maxTempC, precipMm, sunshineHours) {
+  if (precipMm >= 3) return "rainy";
+  if (maxTempC <= 10) return "cold";
+  if (maxTempC >= 23) return "hot";
+  if (precipMm >= 0.5) return "mixed";
+  if (sunshineHours != null && sunshineHours >= 5) return "sunny";
+  return "mixed";
+}
+
+// Pick the single "worst/most demanding" category across the trip so K packs for
+// the toughest day. Order: rainy > cold > hot > mixed > sunny.
+function worstWeather(categories) {
+  const rank = { rainy: 5, cold: 4, hot: 3, mixed: 2, sunny: 1 };
+  return categories.reduce(
+    (worst, c) => ((rank[c] || 0) > (rank[worst] || 0) ? c : worst),
+    "sunny"
+  );
+}
 
 // Resolve a qty rule against the number of days.
 function resolveQty(qty, days) {

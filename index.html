@@ -25,12 +25,6 @@
         <select id="circuit"></select>
       </div>
 
-      <div class="field">
-        <label for="days">Number of days</label>
-        <input type="number" id="days" min="1" max="14" value="2" inputmode="numeric" />
-        <p class="hint">Or pick dates below to fill this in automatically.</p>
-      </div>
-
       <div class="field-row">
         <div class="field">
           <label for="from">From</label>
@@ -43,6 +37,12 @@
       </div>
 
       <div class="field">
+        <label for="days">Number of days</label>
+        <input type="number" id="days" min="1" max="14" value="2" inputmode="numeric" />
+        <p class="hint">Pick dates above and this fills in automatically.</p>
+      </div>
+
+      <div class="field">
         <label for="weather">Weather</label>
         <select id="weather">
           <option value="hot">🔥 Hot (&gt;23°C)</option>
@@ -51,6 +51,8 @@
           <option value="rainy">🌧️ Rainy</option>
           <option value="cold">❄️ Cold</option>
         </select>
+        <button type="button" id="use-forecast" class="btn-forecast">🌤️ Use forecast</button>
+        <p class="hint" id="forecast-status"></p>
       </div>
 
       <button id="generate" class="btn-primary">Generate checklist</button>
@@ -64,6 +66,7 @@
         </div>
         <span class="progress-badge" id="progress-badge">0%</span>
       </div>
+      <div id="all-packed" class="all-packed hidden">🎉 You're all packed — have a great race!</div>
       <div id="checklist"></div>
       <div class="result-actions">
         <button id="reset-ticks" class="btn-secondary">Uncheck all</button>
@@ -79,9 +82,22 @@
   <script src="packing-rules.js"></script>
   <script src="app.js"></script>
   <script>
-    if ('serviceWorker' in navigator) {
-      window.addEventListener('load', () => navigator.serviceWorker.register('service-worker.js'));
-    }
+    // Register the service worker in production only. On localhost we skip it (and
+    // unregister any existing one) so code edits always show up on reload.
+    (function () {
+      if (!('serviceWorker' in navigator)) return;
+      var host = location.hostname;
+      var isLocal = host === 'localhost' || host === '127.0.0.1' || host === '';
+      if (isLocal) {
+        navigator.serviceWorker.getRegistrations().then(function (regs) {
+          regs.forEach(function (r) { r.unregister(); });
+        });
+        return;
+      }
+      window.addEventListener('load', function () {
+        navigator.serviceWorker.register('service-worker.js');
+      });
+    })();
   </script>
 </body>
 </html>

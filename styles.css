@@ -86,6 +86,20 @@ select, input[type="number"], input[type="date"] {
   cursor: pointer;
 }
 
+.btn-forecast {
+  width: 100%;
+  margin-top: 10px;
+  padding: 11px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--accent);
+  background: transparent;
+  border: 1px solid var(--accent);
+  border-radius: 12px;
+  cursor: pointer;
+}
+.btn-forecast:disabled { opacity: 0.6; cursor: default; }
+
 .result-head {
   display: flex;
   align-items: center;
@@ -111,6 +125,24 @@ select, input[type="number"], input[type="date"] {
   text-transform: uppercase;
   letter-spacing: 0.06em;
   color: var(--muted);
+  cursor: pointer;
+  user-select: none;
+}
+/* Collapse the rows once a section is complete (or tapped shut). */
+.checklist-group.collapsed .group-rows { display: none; }
+.checklist-group.complete h3 { color: var(--accent-2); }
+.checklist-group.complete h3::after { content: " ✓"; }
+.checklist-group.collapsed:not(.complete) h3::after { content: " ▸"; }
+
+.all-packed {
+  background: var(--accent-2);
+  color: #06231a;
+  font-weight: 700;
+  font-size: 16px;
+  text-align: center;
+  padding: 14px;
+  border-radius: 12px;
+  margin-bottom: 4px;
 }
 
 .check-row {
