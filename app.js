@@ -46,6 +46,21 @@
   fromInput.addEventListener("input", syncDaysFromDates);
   toInput.addEventListener("input", syncDaysFromDates);
 
+  // Set by the forecast lookup from the trip's evening low (<18:00+). `warmCool­Evening`
+  // (warm day >23°C + cool evening <15°C) drives the extra shorts+trousers
+  // suggestion; `coldNight` (evening low <15°C) switches sleepwear to pyjamas.
+  // `coldNight` is null until a forecast runs, so buildChecklist can fall back to
+  // the weather category for manual selections.
+  let warmCoolEvening = false;
+  let coldNight = null;
+
+  // These come from a specific forecast, so drop them whenever the trip inputs
+  // change — only valid until re-checked with "Use forecast".
+  function clearForecastFlags() { warmCoolEvening = false; coldNight = null; }
+  [circuitSel, fromInput, toInput, daysInput, weatherSel].forEach((el) => {
+    el.addEventListener("change", clearForecastFlags);
+  });
+
   function currentSelections() {
     return {
       circuit: circuitSel.value,
@@ -53,6 +68,8 @@
       from: fromInput.value,
       to: toInput.value,
       weather: weatherSel.value,
+      warmCoolEvening: warmCoolEvening,
+      coldNight: coldNight,
     };
   }
 
@@ -95,7 +112,10 @@
   }
 
   function renderChecklist(sel) {
-    const groups = buildChecklist(sel.weather, sel.days);
+    const groups = buildChecklist(sel.weather, sel.days, {
+      warmCoolEvening: sel.warmCoolEvening,
+      coldNight: sel.coldNight,
+    });
     const ticks = loadState().ticks || {};
     checklistEl.innerHTML = "";
 
@@ -175,6 +195,7 @@
         "https://api.open-meteo.com/v1/forecast" +
         "?latitude=" + circuit.lat + "&longitude=" + circuit.lon +
         "&daily=temperature_2m_max,temperature_2m_min,precipitation_sum,sunshine_duration" +
+        "&hourly=temperature_2m" +
         "&timezone=auto&start_date=" + start + "&end_date=" + end;
       const res = await fetch(url);
       if (!res.ok) throw new Error("bad response");
@@ -192,9 +213,24 @@
       weatherSel.value = worst;
       const low = Math.round(Math.min.apply(null, d.temperature_2m_min));
       const high = Math.round(Math.max.apply(null, d.temperature_2m_max));
+      // Night-temperature checks from the coolest temperature after 6pm across
+      // the trip's hourly forecast: warm-day/cool-evening (shorts + trousers)
+      // and cold-night sleepwear (pyjamas vs night shorts).
+      const h = data.hourly || {};
+      const eveLow = eveningLow(h.time, h.temperature_2m);
+      warmCoolEvening = eveLow != null && warmDayCoolEvening(high, eveLow);
+      coldNight = eveLow != null && coldNightRule(eveLow);
       forecastStatus.textContent =
         "Forecast: " + low + "–" + high + " °C → set weather to " +
-        (WEATHER_LABELS[worst] || worst) + " (change it if you like).";
+        (WEATHER_LABELS[worst] || worst) + " (change it if you like)." +
+        (warmCoolEvening
+          ? " Warm days, cool evenings (" + Math.round(eveLow) +
+            " °C after 6pm) — suggesting shorts + trousers."
+          : "") +
+        (eveLow != null
+          ? " Night " + Math.round(eveLow) + " °C → " +
+            (coldNight ? "warm pyjamas." : "night shorts.")
+          : "");
     } catch (_) {
       forecastStatus.textContent =
         "Couldn't get the forecast (offline or date too far ahead) — pick weather manually.";
@@ -228,6 +264,9 @@
     if (saved.from) fromInput.value = saved.from;
     if (saved.to) toInput.value = saved.to;
     weatherSel.value = saved.weather || "sunny";
+    warmCoolEvening = !!saved.warmCoolEvening;
+    // Preserve the tri-state: null (no forecast) must not become false.
+    coldNight = saved.coldNight == null ? null : !!saved.coldNight;
     showResults(saved);
   }
 })();

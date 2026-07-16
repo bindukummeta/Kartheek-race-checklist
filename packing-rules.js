@@ -36,7 +36,7 @@ const PACKING_RULES = [
     category: "Clothing",
     items: [
       { name: "Shorts", qty: "days", conditions: ["hot", "sunny", "mixed"] },
-      { name: "T-shirts", qty: "days+1", conditions: ["hot", "sunny", "mixed"] },
+      { name: "T-shirts", qty: "days-1", conditions: ["hot", "sunny", "mixed"] },
       { name: "Long-sleeve tops", qty: "days", conditions: ["cold", "rainy", "mixed"] },
       { name: "Trousers / joggers", qty: "days-1", conditions: ["cold", "rainy", "mixed"] },
       { name: "Fleece / hoodie", qty: 1, conditions: ["cold", "mixed", "rainy"] },
@@ -47,10 +47,10 @@ const PACKING_RULES = [
   },
   {
     category: "Sleep",
+    // Sleepwear (night shorts vs warm pyjamas) is chosen by night temperature in
+    // buildChecklist; only the always-needed night shirts live here.
     items: [
-      { name: "Night shorts", qty: "days", conditions: ["hot", "sunny", "mixed"] },
-      { name: "Night shirts", qty: "days", conditions: ["all"] },
-      { name: "Warm pyjamas", qty: 1, conditions: ["cold", "rainy"] },
+      { name: "Night shirts", qty: "days-2", conditions: ["all"] },
     ],
   },
   {
@@ -61,6 +61,7 @@ const PACKING_RULES = [
       { name: "Racing shirts", qty: 2, conditions: ["all"] },
       { name: "Race suit", qty: 1, conditions: ["all"] },
       { name: "Gloves", qty: 1, conditions: ["all"] },
+      { name: "Balaclava", qty: 1, conditions: ["all"] },
       { name: "Trainers", qty: 1, conditions: ["all"] },
     ],
   },
@@ -85,6 +86,58 @@ const PACKING_RULES = [
     ],
   },
 ];
+
+// Extra items suggested when a day is warm but the evening turns cool — you want
+// shorts for the day and trousers for after dark. Shown as its own section.
+const WARM_COOL_SUGGESTION = {
+  category: "Suggested for warm days / cool evenings",
+  items: [
+    { name: "Trousers", qty: 1, conditions: ["all"] },
+    { name: "Shorts", qty: 1, conditions: ["all"] },
+  ],
+};
+
+// Thresholds for the warm-day / cool-evening suggestion.
+const WARM_DAY_HIGH_C = 23; // day high must be ABOVE this
+const COOL_EVENING_LOW_C = 15; // evening low must be BELOW this
+const EVENING_FROM_HOUR = 18; // "after 6 in the evening"
+
+// Sleepwear switches to warm pyjamas when the night is below this; otherwise
+// night shorts. Same 18:00+ evening low signal as the suggestion above.
+const COLD_NIGHT_LOW_C = 15;
+
+// Sleepwear options, chosen by night temperature in buildChecklist.
+const NIGHT_SHORTS = { name: "Night shorts", qty: "days" };
+const WARM_PYJAMAS = { name: "Warm pyjamas", qty: 1 };
+
+// True when the night (evening low, after 6pm) is cold enough for pyjamas.
+function coldNightRule(eveningLowC) {
+  return typeof eveningLowC === "number" && eveningLowC < COLD_NIGHT_LOW_C;
+}
+
+// Lowest temperature at or after 18:00 across the given hourly series. `times`
+// are ISO strings ("YYYY-MM-DDTHH:mm") aligned with `temps`. Returns null when
+// there are no evening hours to read.
+function eveningLow(times, temps) {
+  if (!Array.isArray(times) || !Array.isArray(temps)) return null;
+  let low = null;
+  for (let i = 0; i < times.length; i++) {
+    const t = times[i];
+    const temp = temps[i];
+    if (typeof t !== "string" || typeof temp !== "number") continue;
+    const hour = parseInt(t.slice(11, 13), 10);
+    if (isNaN(hour) || hour < EVENING_FROM_HOUR) continue;
+    if (low === null || temp < low) low = temp;
+  }
+  return low;
+}
+
+// True when the day is warm (high above 23°C) yet the evening is cool (low below
+// 15°C after 6pm) — the case where you'd pack both shorts and trousers.
+function warmDayCoolEvening(dayHigh, eveningLowC) {
+  if (typeof dayHigh !== "number" || typeof eveningLowC !== "number") return false;
+  return dayHigh > WARM_DAY_HIGH_C && eveningLowC < COOL_EVENING_LOW_C;
+}
 
 // Map a day's forecast (max temp °C, precipitation mm, sunshine hours) to one of
 // our weather categories. Tweak these thresholds to taste.
@@ -113,17 +166,43 @@ function resolveQty(qty, days) {
   if (qty === "days") return days;
   if (qty === "days+1") return days + 1;
   if (qty === "days-1") return Math.max(1, days - 1);
+  if (qty === "days-2") return Math.max(1, days - 2);
   return 1;
 }
 
+// Cold-weather categories used as the sleepwear fallback when no forecast ran.
+const COLD_WEATHER = ["cold", "rainy"];
+
 // Build the final list for a given weather + days.
-function buildChecklist(weather, days) {
+//  - opts.coldNight       -> pyjamas instead of night shorts (true/false from the
+//                            forecast; when null/undefined, fall back to weather)
+//  - opts.warmCoolEvening -> appends the warm-day / cool-evening suggestion
+function buildChecklist(weather, days, opts) {
+  opts = opts || {};
+  // Pick sleepwear by night temperature: cold night -> pyjamas, else night shorts.
+  // Without a forecast signal, fall back to the weather category.
+  const cold = opts.coldNight == null
+    ? COLD_WEATHER.indexOf(weather) >= 0
+    : !!opts.coldNight;
+  const sleepwear = cold ? WARM_PYJAMAS : NIGHT_SHORTS;
   const result = [];
   for (const group of PACKING_RULES) {
     const items = group.items
       .filter((it) => it.conditions.includes("all") || it.conditions.includes(weather))
       .map((it) => ({ name: it.name, count: resolveQty(it.qty, days) }));
+    if (group.category === "Sleep") {
+      items.push({ name: sleepwear.name, count: resolveQty(sleepwear.qty, days) });
+    }
     if (items.length) result.push({ category: group.category, items });
+  }
+  if (opts.warmCoolEvening) {
+    result.push({
+      category: WARM_COOL_SUGGESTION.category,
+      items: WARM_COOL_SUGGESTION.items.map((it) => ({
+        name: it.name,
+        count: resolveQty(it.qty, days),
+      })),
+    });
   }
   return result;
 }
