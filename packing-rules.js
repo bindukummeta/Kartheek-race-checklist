@@ -206,3 +206,14 @@ function buildChecklist(weather, days, opts) {
   }
   return result;
 }
+
+// Export the pure helpers for Node's test runner. Guarded so the browser (which
+// loads this via a <script> tag and reads the globals above) is unaffected.
+if (typeof module !== "undefined" && module.exports) {
+  module.exports = {
+    CIRCUITS, WEATHER_LABELS, PACKING_RULES,
+    WARM_DAY_HIGH_C, COOL_EVENING_LOW_C, COLD_NIGHT_LOW_C, EVENING_FROM_HOUR,
+    eveningLow, warmDayCoolEvening, coldNightRule,
+    classifyDay, worstWeather, resolveQty, buildChecklist,
+  };
+}

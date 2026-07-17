@@ -1,0 +1,9 @@
+{
+  "name": "race-packing-app",
+  "version": "1.0.0",
+  "description": "Race Pack — weather- and days-aware karting trip packing checklist (PWA).",
+  "private": true,
+  "scripts": {
+    "test": "node --test"
+  }
+}
